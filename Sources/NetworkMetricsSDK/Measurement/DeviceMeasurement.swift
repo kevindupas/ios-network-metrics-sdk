@@ -3,42 +3,46 @@ import UIKit
 
 internal struct DeviceMeasurement {
     func measure() -> DeviceResult {
-        let device = UIDevice.current
-        device.isBatteryMonitoringEnabled = true
+        // UIDevice must be accessed on main thread
+        var batteryLevel: Int? = nil
+        var isCharging: Bool? = nil
+        var model = "unknown"
 
-        let batteryLevel = device.batteryLevel >= 0 ? Int(device.batteryLevel * 100) : nil
-        let isCharging: Bool? = {
-            switch device.batteryState {
-            case .charging, .full: return true
-            case .unplugged:       return false
-            default:               return nil
-            }
-        }()
+        DispatchQueue.main.sync {
+            let device = UIDevice.current
+            device.isBatteryMonitoringEnabled = true
+            batteryLevel = device.batteryLevel >= 0 ? Int(device.batteryLevel * 100) : nil
+            isCharging = {
+                switch device.batteryState {
+                case .charging, .full: return true
+                case .unplugged:       return false
+                default:               return nil
+                }
+            }()
+            model = modelIdentifier()
+        }
 
         let thermalStatus: String = {
             switch ProcessInfo.processInfo.thermalState {
-            case .nominal:  return "NONE"
-            case .fair:     return "LIGHT"
-            case .serious:  return "MODERATE"
-            case .critical: return "SEVERE"
+            case .nominal:    return "NONE"
+            case .fair:       return "LIGHT"
+            case .serious:    return "MODERATE"
+            case .critical:   return "SEVERE"
             @unknown default: return "UNKNOWN"
             }
         }()
 
-        let ramUsed = ramUsedMb()
-        let osVersion = ProcessInfo.processInfo.operatingSystemVersionString
-
         return DeviceResult(
             manufacturer: "Apple",
-            model: modelIdentifier(),
-            osVersion: osVersion,
+            model: model,
+            osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
             sdkInt: Int(ProcessInfo.processInfo.operatingSystemVersion.majorVersion),
             simOperatorName: nil,
             mcc: nil,
             mnc: nil,
             batteryLevel: batteryLevel,
             isCharging: isCharging,
-            ramUsedMb: ramUsed,
+            ramUsedMb: ramUsedMb(),
             cpuLoadPercent: nil,
             thermalStatus: thermalStatus
         )
