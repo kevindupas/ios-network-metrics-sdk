@@ -1,40 +1,20 @@
 import Foundation
 
-private final class SpeedDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
-    private let deadline: Date
-    private let onDone: (Int64) -> Void
-    private var totalWritten: Int64 = 0
-    private var settled = false
+private final class SpeedDownloadDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let onBytes: (Int64) -> Void
+    private let onDone: () -> Void
 
-    init(deadline: Date, onDone: @escaping (Int64) -> Void) {
-        self.deadline = deadline
+    init(onBytes: @escaping (Int64) -> Void, onDone: @escaping () -> Void) {
+        self.onBytes = onBytes
         self.onDone = onDone
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                    didWriteData bytesWritten: Int64,
-                    totalBytesWritten: Int64,
-                    totalBytesExpectedToWrite: Int64) {
-        totalWritten = totalBytesWritten
-        if Date() >= deadline { finish(session: session, task: downloadTask) }
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        onBytes(Int64(data.count))
     }
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
-                    didFinishDownloadingTo location: URL) {
-        finish(session: session, task: downloadTask)
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask,
-                    didCompleteWithError error: Error?) {
-        finish(session: nil, task: task)
-    }
-
-    private func finish(session: URLSession?, task: URLSessionTask?) {
-        guard !settled else { return }
-        settled = true
-        task?.cancel()
-        session?.invalidateAndCancel()
-        onDone(totalWritten)
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        onDone()
     }
 }
 
@@ -43,7 +23,7 @@ internal struct SpeedMeasurement {
     private let uploadDurationMs: Int
     private let threadCount: Int
 
-    private static let downloadUrl = "https://speed.cloudflare.com/__down?bytes=100000000"
+    private static let downloadUrl = "https://speed.cloudflare.com/__down?bytes=104857600"
     private static let uploadUrl   = "https://speed.cloudflare.com/__up"
     private static let traceUrl    = "https://speed.cloudflare.com/cdn-cgi/trace"
 
@@ -75,31 +55,54 @@ internal struct SpeedMeasurement {
     private func measureDownload() async -> Double {
         guard let url = URL(string: Self.downloadUrl) else { return 0 }
         let durationSec = Double(downloadDurationMs) / 1000.0
-        let deadline = Date().addingTimeInterval(durationSec)
-        let start = Date()
         let count = threadCount
         let q = DispatchQueue(label: "nm.dl.collect")
 
-        let totalBytes: Int64 = await withCheckedContinuation { cont in
-            var accumulated: Int64 = 0
-            var done = 0
+        var sessions: [URLSession] = []
+
+        let result: (Int64, Double) = await withCheckedContinuation { cont in
+            var totalBytes: Int64 = 0
+            var doneCount = 0
+            let start = Date()
+
             for _ in 0..<count {
-                let delegate = SpeedDownloadDelegate(deadline: deadline) { bytes in
-                    q.async {
-                        accumulated += bytes
-                        done += 1
-                        if done == count { cont.resume(returning: accumulated) }
+                let delegate = SpeedDownloadDelegate(
+                    onBytes: { bytes in
+                        q.async { totalBytes += bytes }
+                    },
+                    onDone: {
+                        q.async {
+                            doneCount += 1
+                            if doneCount == count {
+                                let elapsed = Date().timeIntervalSince(start)
+                                cont.resume(returning: (totalBytes, elapsed))
+                            }
+                        }
                     }
-                }
+                )
                 let config = URLSessionConfiguration.ephemeral
                 config.timeoutIntervalForRequest = durationSec + 5
-                config.timeoutIntervalForResource = durationSec + 5
+                config.timeoutIntervalForResource = durationSec + 10
                 let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
-                session.downloadTask(with: url).resume()
+                sessions.append(session)
+                session.dataTask(with: url).resume()
+            }
+
+            // Cancel all sessions after deadline
+            DispatchQueue.global().asyncAfter(deadline: .now() + durationSec) {
+                q.async {
+                    let elapsed = Date().timeIntervalSince(start)
+                    // Only resume if not already done
+                    if doneCount < count {
+                        doneCount = count
+                        cont.resume(returning: (totalBytes, elapsed))
+                    }
+                }
+                sessions.forEach { $0.invalidateAndCancel() }
             }
         }
 
-        let elapsed = Date().timeIntervalSince(start)
+        let (totalBytes, elapsed) = result
         guard elapsed > 0, totalBytes > 1000 else { return 0 }
         return Double(totalBytes) * 8.0 / elapsed / 1_000_000.0
     }

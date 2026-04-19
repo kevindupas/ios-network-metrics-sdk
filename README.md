@@ -161,6 +161,9 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.16
+- Fix: download speed — switch to `URLSessionDataDelegate.didReceive(data:)` for in-memory chunk accumulation. `URLSessionDownloadTask` writes to disk first (delayed flush = 0 bytes at deadline). `dataTask` delivers chunks directly to memory, deadline timer cancels sessions and reports accumulated bytes.
+
 ### v1.0.15
 - Fix: download speed — use `URLSessionDownloadTask` + `didWriteData` delegate (counts bytes written to disk per chunk, no byte-by-byte loop overhead). Multiple parallel tasks via delegate pattern.
 
