@@ -79,6 +79,9 @@ struct MyApp: App {
 
 ```swift
 NetworkMetricsSdk.shared.measureNow()
+
+// skip speed test (fast cycle — useful for background refresh)
+NetworkMetricsSdk.shared.measureNow(skipSpeed: true)
 ```
 
 ### Read last result
@@ -87,6 +90,34 @@ NetworkMetricsSdk.shared.measureNow()
 if let json = NetworkMetricsSdk.shared.getLastResult() {
     let ts = NetworkMetricsSdk.shared.getLastResultTimestamp() // ms since epoch
     print(json)
+}
+```
+
+### Radio snapshot (fast, no network I/O)
+
+```swift
+Task {
+    let snap = await NetworkMetricsSdk.shared.getRadioSnapshot()
+    print(snap.radio.networkGeneration) // "4G" / "5G" / ...
+    print(snap.radio.technology)        // "WiFi" / "cellular"
+    print(snap.device.simOperatorName)  // Operator name (iOS 14-16.3 only)
+}
+```
+
+### Per-phase progress events
+
+```swift
+NetworkMetricsSdk.shared.setProgressCallback { progress in
+    switch progress.phase {
+    case .speedDownloadProgress:
+        if let mbps = progress.result as? Double { print("DL \(mbps) Mbps") }
+    case .speed:
+        if let s = progress.result as? SpeedResult { print("Speed done: \(s.downloadMbps)") }
+    case .complete:
+        print("Cycle complete")
+    default:
+        break
+    }
 }
 ```
 
@@ -108,6 +139,10 @@ if let json = NetworkMetricsSdk.shared.getLastResult() {
 | `tcpPort` | `Int` | `5006` | TCP fallback port |
 | `webTargets` | `[WebTarget]` | 5 defaults | Sites to probe for web browsing |
 | `remoteConfigUrl` | `String?` | `nil` | URL returning `{"targets":[...]}` (1h cache) |
+| `speedDownloadDurationMs` | `Int` | `10000` | Download test window |
+| `speedUploadDurationMs` | `Int` | `8000` | Upload test window |
+| `speedThreadCount` | `Int` | `3` | Parallel TCP streams for speed test |
+| `streamingUrl` | `String?` | `nil` | HLS master playlist URL (falls back to a default test stream) |
 
 ## Payload
 
@@ -149,17 +184,35 @@ Same structure as android-network-metrics-sdk. Key fields:
 | Device model / OS / battery | ✅ | ✅ |
 | RAM usage | ✅ | ✅ |
 | Thermal state | ✅ | ✅ |
-| CPU load % | ❌ | ✅ |
-| MCC / MNC / Operator | ❌ CTCarrier deprecated | ✅ |
-| RSRP / RSRQ / Cell ID | ❌ Private API | ✅ |
+| CPU load % | ❌ Sandboxed (no `host_processor_info`) | ✅ |
+| Network generation (2G/3G/4G/5G) | ✅ via CTTelephonyNetworkInfo | ✅ |
+| MCC / MNC / Operator | ⚠️ iOS 14–16.3 only (placeholder `"--"` / `65535` on 16.4+) | ✅ |
+| RSRP / RSRQ / SINR / RSSI / CQI | ❌ Private API | ✅ |
+| Cell ID / PCI / TAC / EARFCN | ❌ Private API | ✅ |
 | Neighbouring cells | ❌ Private API | ✅ |
 | 5G NSA/SA detection | ❌ No public API | ✅ |
-| VoLTE / VoNR | ❌ No public API | ✅ |
-| Background scheduling guaranteed | ⚠️ BGAppRefresh best-effort | ✅ WorkManager |
+| VoLTE / VoNR availability | ❌ No public API | ✅ |
+| Progress callbacks (per-phase) | ✅ `setProgressCallback` | ✅ |
+| Background scheduling guaranteed | ⚠️ `BGAppRefreshTask` best-effort | ✅ WorkManager |
 | MOS G.107 | ✅ | ✅ |
 | QoS scores (streaming/gaming/RTC) | ✅ | ✅ |
 
 ## Changelog
+
+### v1.0.20 — Android parity pass
+- Feat: `RadioMeasurement` via `CTTelephonyNetworkInfo.serviceCurrentRadioAccessTechnology` — reports `networkGeneration` (2G/3G/4G/5G) + `technology` (WiFi/cellular). Signal fields (RSRP/RSRQ/SINR/RSSI/CQI/CI/PCI/TAC/EARFCN) remain `nil` — not exposed by public iOS APIs.
+- Feat: `NetworkMetricsRecord` now carries `radio` + `neighboringCells` (always empty on iOS).
+- Feat: `MeasurementProgress` enum + `setProgressCallback(_:)` — emits per-phase events during `runCycle` (speed, packetLoss, streaming, socialLatency, dns, webBrowsing, radio, network, device, geo, complete). Matches Android `MeasurementCallback`.
+- Feat: `measureNow(skipSpeed:)` — allows fast cycles (skip the ~18s speed test) for background refresh budgets.
+- Feat: `getRadioSnapshot()` async — fast launch-UI snapshot (radio + device), no network I/O beyond a single `NWPathMonitor` read.
+- Feat: `streamingUrl` config option — override default HLS test stream.
+- Algorithm alignment with Android:
+  - Speed latency: 2 warmup + 12 measured HEAD probes, **stddev** jitter (not mean-absolute-deviation)
+  - PacketLoss: 30 packets @ 50ms interval, 5s timeout, UDP pre-flight probe, `method` lowercase
+  - Streaming: 20s budget, lowest-BANDWIDTH variant selection via regex, rebuffer on >500ms segment gap
+  - SocialLatency: reachable on any 100–599 HTTP status
+  - WebBrowsing: phase-only timings via `URLSessionTaskTransactionMetrics` (dns/tcp/tls/ttfb)
+  - NetworkContext: ipapi.co → ipwho.is fallback chain for ASN/ISP/city, `cfServerCity` from Cloudflare locations list
 
 ### v1.0.19
 - Fix: filter CTCarrier placeholder `"--"` (iOS 16+ returns `"--"` for operator name instead of nil)
