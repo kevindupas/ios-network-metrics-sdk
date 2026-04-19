@@ -1,35 +1,40 @@
 import Foundation
 
-// Receives data chunks from URLSession and counts bytes within a deadline
-private final class DownloadDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+private final class SpeedDownloadDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let deadline: Date
-    private let onDone: (Int) -> Void
-    private var bytes = 0
-    private var task: URLSessionDataTask?
-    private var done = false
+    private let onDone: (Int64) -> Void
+    private var totalWritten: Int64 = 0
+    private var settled = false
 
-    init(deadline: Date, onDone: @escaping (Int) -> Void) {
+    init(deadline: Date, onDone: @escaping (Int64) -> Void) {
         self.deadline = deadline
         self.onDone = onDone
     }
 
-    func set(task: URLSessionDataTask) { self.task = task }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard !done else { return }
-        bytes += data.count
-        if Date() >= deadline { finish() }
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didWriteData bytesWritten: Int64,
+                    totalBytesWritten: Int64,
+                    totalBytesExpectedToWrite: Int64) {
+        totalWritten = totalBytesWritten
+        if Date() >= deadline { finish(session: session, task: downloadTask) }
     }
 
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        finish()
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask,
+                    didFinishDownloadingTo location: URL) {
+        finish(session: session, task: downloadTask)
     }
 
-    private func finish() {
-        guard !done else { return }
-        done = true
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    didCompleteWithError error: Error?) {
+        finish(session: nil, task: task)
+    }
+
+    private func finish(session: URLSession?, task: URLSessionTask?) {
+        guard !settled else { return }
+        settled = true
         task?.cancel()
-        onDone(bytes)
+        session?.invalidateAndCancel()
+        onDone(totalWritten)
     }
 }
 
@@ -69,39 +74,33 @@ internal struct SpeedMeasurement {
 
     private func measureDownload() async -> Double {
         guard let url = URL(string: Self.downloadUrl) else { return 0 }
-        let deadline = Date().addingTimeInterval(Double(downloadDurationMs) / 1000.0)
-        let count = threadCount
+        let durationSec = Double(downloadDurationMs) / 1000.0
+        let deadline = Date().addingTimeInterval(durationSec)
         let start = Date()
-        let q = DispatchQueue(label: "nm.speed.dl")
+        let count = threadCount
+        let q = DispatchQueue(label: "nm.dl.collect")
 
-        let totalBytes: Int = await withCheckedContinuation { cont in
-            var accumulated = 0
+        let totalBytes: Int64 = await withCheckedContinuation { cont in
+            var accumulated: Int64 = 0
             var done = 0
-
             for _ in 0..<count {
-                Task.detached {
-                    let b: Int = await withCheckedContinuation { innerCont in
-                        let delegate = DownloadDelegate(deadline: deadline) { bytes in
-                            innerCont.resume(returning: bytes)
-                        }
-                        let session = URLSession(configuration: .ephemeral,
-                                                delegate: delegate,
-                                                delegateQueue: nil)
-                        let task = session.dataTask(with: url)
-                        delegate.set(task: task)
-                        task.resume()
-                    }
+                let delegate = SpeedDownloadDelegate(deadline: deadline) { bytes in
                     q.async {
-                        accumulated += b
+                        accumulated += bytes
                         done += 1
                         if done == count { cont.resume(returning: accumulated) }
                     }
                 }
+                let config = URLSessionConfiguration.ephemeral
+                config.timeoutIntervalForRequest = durationSec + 5
+                config.timeoutIntervalForResource = durationSec + 5
+                let session = URLSession(configuration: config, delegate: delegate, delegateQueue: nil)
+                session.downloadTask(with: url).resume()
             }
         }
 
         let elapsed = Date().timeIntervalSince(start)
-        guard elapsed > 0, totalBytes > 0 else { return 0 }
+        guard elapsed > 0, totalBytes > 1000 else { return 0 }
         return Double(totalBytes) * 8.0 / elapsed / 1_000_000.0
     }
 

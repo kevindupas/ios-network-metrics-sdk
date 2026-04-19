@@ -161,6 +161,9 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.15
+- Fix: download speed — use `URLSessionDownloadTask` + `didWriteData` delegate (counts bytes written to disk per chunk, no byte-by-byte loop overhead). Multiple parallel tasks via delegate pattern.
+
 ### v1.0.14
 - Fix: download speed measurement — replace `bytes(from:)` byte-by-byte iteration (too slow, loop overhead kills throughput) with `URLSessionDataDelegate` chunk-based counting
 
