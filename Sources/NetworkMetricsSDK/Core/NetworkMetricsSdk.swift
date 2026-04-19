@@ -5,7 +5,7 @@ import UIKit
 private let prefsKey   = "nm_last_result"
 private let prefsKeyAt = "nm_last_result_at"
 private let bgTaskId   = "com.networkmetrics.refresh"
-private let sdkVersion = "1.0.6"
+private let sdkVersion = "1.0.7"
 
 public final class NetworkMetricsSdk {
     public static let shared = NetworkMetricsSdk()
@@ -98,7 +98,7 @@ public final class NetworkMetricsSdk {
         }
 
         let network = await NetworkContextMeasurement().measure()
-        let device  = DeviceMeasurement().measure()
+        let device  = await DeviceMeasurement().measure()
         let geo     = await GeoMeasurement().measure()
 
         let loss   = udp?.lossPercent ?? 0

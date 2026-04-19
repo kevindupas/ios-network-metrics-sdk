@@ -27,37 +27,46 @@ internal struct PacketLossMeasurement {
             using: .udp
         )
         return await withCheckedContinuation { cont in
+            let q = DispatchQueue(label: "nm.udp")
             var sent = 0
             var received = 0
-            var done = false
+            var resumed = false
+
+            func finish() {
+                guard !resumed else { return }
+                resumed = true
+                connection.cancel()
+                let loss = sent > 0 ? Double(sent - received) / Double(sent) * 100.0 : 100.0
+                cont.resume(returning: UdpResult(sent: sent, received: received, lossPercent: loss, method: "UDP"))
+            }
 
             connection.stateUpdateHandler = { state in
-                guard case .ready = state else { return }
-                for i in 0..<self.packetCount {
-                    let payload = "PING\(i)".data(using: .utf8)!
-                    connection.send(content: payload, completion: .contentProcessed { err in
-                        if err == nil { sent += 1 }
-                    })
-                    connection.receive(minimumIncompleteLength: 1, maximumLength: 64) { data, _, _, _ in
-                        if data != nil { received += 1 }
-                        if received + (self.packetCount - sent) >= self.packetCount && !done {
-                            done = true
-                            connection.cancel()
-                            let loss = sent > 0 ? Double(sent - received) / Double(sent) * 100.0 : 100.0
-                            cont.resume(returning: UdpResult(sent: sent, received: received, lossPercent: loss, method: "UDP"))
+                q.async {
+                    switch state {
+                    case .ready:
+                        for i in 0..<self.packetCount {
+                            let payload = "PING\(i)".data(using: .utf8)!
+                            connection.send(content: payload, completion: .contentProcessed { err in
+                                q.async {
+                                    if err == nil { sent += 1 }
+                                }
+                            })
+                            connection.receive(minimumIncompleteLength: 1, maximumLength: 64) { data, _, _, _ in
+                                q.async {
+                                    if data != nil { received += 1 }
+                                    if received >= self.packetCount { finish() }
+                                }
+                            }
                         }
-                    }
-                }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                    if !done {
-                        done = true
-                        connection.cancel()
-                        let loss = sent > 0 ? Double(sent - received) / Double(sent) * 100.0 : 100.0
-                        cont.resume(returning: UdpResult(sent: sent, received: received, lossPercent: loss, method: "UDP"))
+                        q.asyncAfter(deadline: .now() + 5) { finish() }
+                    case .failed, .cancelled:
+                        finish()
+                    default:
+                        break
                     }
                 }
             }
-            connection.start(queue: .global())
+            connection.start(queue: q)
         }
     }
 

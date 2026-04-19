@@ -2,24 +2,21 @@ import Foundation
 import UIKit
 
 internal struct DeviceMeasurement {
-    func measure() -> DeviceResult {
-        // UIDevice must be accessed on main thread
-        var batteryLevel: Int? = nil
-        var isCharging: Bool? = nil
-        var model = "unknown"
-
-        DispatchQueue.main.sync {
+    func measure() async -> DeviceResult {
+        let (batteryLevel, isCharging, model) = await MainActor.run {
             let device = UIDevice.current
             device.isBatteryMonitoringEnabled = true
-            batteryLevel = device.batteryLevel >= 0 ? Int(device.batteryLevel * 100) : nil
-            isCharging = {
+
+            let level: Int? = device.batteryLevel >= 0 ? Int(device.batteryLevel * 100) : nil
+            let charging: Bool? = {
                 switch device.batteryState {
                 case .charging, .full: return true
                 case .unplugged:       return false
                 default:               return nil
                 }
             }()
-            model = modelIdentifier()
+            let m = modelIdentifier()
+            return (level, charging, m)
         }
 
         let thermalStatus: String = {

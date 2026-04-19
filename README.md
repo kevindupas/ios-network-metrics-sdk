@@ -161,6 +161,9 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.7
+- Fix: **root cause of SIGABRT** — `DispatchQueue.main.sync` from main thread (Capacitor calls on main thread) causes deadlock → heap corruption. Replaced with `MainActor.run` (async, safe from any thread). `DeviceMeasurement.measure()` is now `async`.
+
 ### v1.0.6
 - CI: fix release workflow — use swift build (macOS host) to validate; iOS platform not available on macos-15 runner without extra download
 
