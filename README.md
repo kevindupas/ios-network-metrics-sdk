@@ -161,8 +161,11 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.3
+- Fix: SIGABRT crash in `runCycle` — `UIDevice.current.identifierForVendor` called from async context, moved to `MainActor.run`
+
 ### v1.0.2
-- Fix: SIGABRT crash on `measureNow()` — `UIDevice.current` must be accessed on main thread, wrapped in `DispatchQueue.main.sync`
+- Fix: SIGABRT crash on `measureNow()` — `UIDevice.current` battery access must be on main thread, wrapped in `DispatchQueue.main.sync`
 
 ### v1.0.1
 - Fix: `BGTaskScheduler` double registration crash — add `registerForBackgroundTask()` separate from `initialize()`

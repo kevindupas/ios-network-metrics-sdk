@@ -105,9 +105,10 @@ public final class NetworkMetricsSdk {
         let mos    = speed.map { MosCalculator.calculate(latencyMs: $0.latencyMs, jitterMs: $0.jitterMs, lossPercent: loss) }
         let scores = speed.map { QualityScoresCalculator.calculate(downloadMbps: $0.downloadMbps, latencyMs: $0.latencyMs, jitterMs: $0.jitterMs, lossPercent: loss) }
 
+        let deviceId = await MainActor.run { UIDevice.current.identifierForVendor?.uuidString ?? "unknown" }
         let record = NetworkMetricsRecord(
             testId:        UUID().uuidString,
-            deviceId:      UIDevice.current.identifierForVendor?.uuidString ?? "unknown",
+            deviceId:      deviceId,
             timestamp:     iso8601(),
             sdkVersion:    sdkVersion,
             speed:         speed,
