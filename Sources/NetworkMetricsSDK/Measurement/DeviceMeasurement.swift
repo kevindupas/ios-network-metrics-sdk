@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import CoreTelephony
 
 internal struct DeviceMeasurement {
     func measure() async -> DeviceResult {
@@ -29,14 +30,29 @@ internal struct DeviceMeasurement {
             }
         }()
 
+        // CTCarrier deprecated iOS 16.4+ — returns nil or 65535 on newer devices
+        // Still works reliably on iOS 14–16.3 (common in Africa)
+        let (simOperatorName, mcc, mnc): (String?, String?, String?) = {
+            let info = CTTelephonyNetworkInfo()
+            guard let carrier = info.serviceSubscriberCellularProviders?.values.first(where: { $0.mobileCountryCode != nil }) else {
+                return (nil, nil, nil)
+            }
+            let mccVal = carrier.mobileCountryCode
+            let mncVal = carrier.mobileNetworkCode
+            // iOS 16.4+ returns "65535" as placeholder — treat as nil
+            let validMcc = mccVal.flatMap { $0 == "65535" || $0.isEmpty ? nil : $0 }
+            let validMnc = mncVal.flatMap { $0 == "65535" || $0.isEmpty ? nil : $0 }
+            return (carrier.carrierName, validMcc, validMnc)
+        }()
+
         return DeviceResult(
             manufacturer: "Apple",
             model: model,
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
             sdkInt: Int(ProcessInfo.processInfo.operatingSystemVersion.majorVersion),
-            simOperatorName: nil,
-            mcc: nil,
-            mnc: nil,
+            simOperatorName: simOperatorName,
+            mcc: mcc,
+            mnc: mnc,
             batteryLevel: batteryLevel,
             isCharging: isCharging,
             ramUsedMb: ramUsedMb(),

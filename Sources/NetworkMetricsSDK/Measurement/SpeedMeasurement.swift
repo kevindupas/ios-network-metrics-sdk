@@ -37,8 +37,14 @@ internal struct SpeedMeasurement {
     }
 
     func measure() async -> SpeedResult? {
-        let dlMbps            = await measureDownload()
+        // Run download + loaded latency probes concurrently
+        let dlTask = Task.detached { await self.measureDownload() }
+        let loadedLatTask = Task.detached { await self.measureLoadedLatency() }
+
+        let dlMbps = await dlTask.value
         os_log("speed: dl=%.2f Mbps", log: speedLog, type: .debug, dlMbps)
+        let loadedLatMs = await loadedLatTask.value
+
         let ulMbps            = await measureUpload()
         let (latMs, jitterMs) = await measureLatencyJitter()
         let (serverName, serverLocation) = await fetchTrace()
@@ -50,10 +56,29 @@ internal struct SpeedMeasurement {
             uploadMbps: ulMbps,
             latencyMs: latMs,
             jitterMs: jitterMs,
-            loadedLatencyMs: nil,
+            loadedLatencyMs: loadedLatMs,
             serverName: serverName,
             serverLocation: serverLocation
         )
+    }
+
+    // Fires 5 HEAD requests to Cloudflare during the download window and averages RTT.
+    private func measureLoadedLatency() async -> Double? {
+        guard let url = URL(string: "https://speed.cloudflare.com/__down?bytes=0") else { return nil }
+        let durationSec = Double(downloadDurationMs) / 1000.0
+        let deadline = Date().addingTimeInterval(durationSec * 0.9) // stay within DL window
+        var samples: [Double] = []
+        var req = URLRequest(url: url)
+        req.httpMethod = "HEAD"
+        req.timeoutInterval = 5
+        while Date() < deadline && samples.count < 8 {
+            let t = Date()
+            _ = try? await URLSession.shared.data(for: req)
+            let rtt = Date().timeIntervalSince(t) * 1000.0
+            if rtt > 0 { samples.append(rtt) }
+        }
+        guard samples.count >= 2 else { return nil }
+        return samples.reduce(0, +) / Double(samples.count)
     }
 
     private func measureDownload() async -> Double {

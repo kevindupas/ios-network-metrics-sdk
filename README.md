@@ -161,6 +161,11 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.18
+- Feat: MCC/MNC/operator via CTCarrier — works on iOS 14–16.3 (common in Africa), returns nil on iOS 16.4+ where Apple returns placeholder "65535"
+- Feat: loaded latency — concurrent HEAD probes during download window, measures RTT under load
+- Fix: CPU load % marked as unavailable (iOS sandbox blocks `host_processor_info`)
+
 ### v1.0.17
 - Fix: download speed — parallel `Task.detached` loops each downloading 10 MB chunks via `URLSession.data(from:)` until deadline. No delegate, no race condition, simple byte counting.
 
