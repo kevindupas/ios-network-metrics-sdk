@@ -27,6 +27,7 @@ public struct NetworkMetricsConfig {
     public let tcpPort: Int
     public let webTargets: [WebTarget]
     public let remoteConfigUrl: String?
+    public let streamingUrl: String?
 
     public static let defaultWebTargets: [WebTarget] = [
         WebTarget(name: "Google", url: "https://www.google.com"),
@@ -53,7 +54,8 @@ public struct NetworkMetricsConfig {
         udpPort: Int = 5005,
         tcpPort: Int = 5006,
         webTargets: [WebTarget] = NetworkMetricsConfig.defaultWebTargets,
-        remoteConfigUrl: String? = nil
+        remoteConfigUrl: String? = nil,
+        streamingUrl: String? = nil
     ) {
         self.backendUrl = backendUrl
         self.authHeader = authHeader
@@ -72,5 +74,6 @@ public struct NetworkMetricsConfig {
         self.tcpPort = tcpPort
         self.webTargets = webTargets
         self.remoteConfigUrl = remoteConfigUrl
+        self.streamingUrl = streamingUrl
     }
 }

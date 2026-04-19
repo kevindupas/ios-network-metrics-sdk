@@ -9,13 +9,51 @@ public struct NetworkMetricsRecord: Codable {
     public let udpPacketLoss: UdpResult?
     public let streaming: StreamingResult?
     public let socialLatency: [SocialLatencyResult]
-    public let dns: DnsResult?
-    public let webBrowsing: [WebBrowsingResult]
+    public let radio: RadioResult?
     public let network: NetworkResult
     public let geo: GeoResult?
     public let device: DeviceResult
     public let scores: QualityScores?
     public let mos: Double?
+    public let dns: DnsResult?
+    public let webBrowsing: [WebBrowsingResult]
+    public let neighboringCells: [NeighboringCellResult]
+}
+
+public struct RadioResult: Codable {
+    public let rsrp: Int?
+    public let rsrq: Int?
+    public let sinr: Int?
+    public let rssi: Int?
+    public let cqi: Int?
+    public let ci: Int64?
+    public let pci: Int?
+    public let tac: Int?
+    public let lac: Int?
+    public let earfcn: Int?
+    public let bandwidth: Int?
+    public let psc: Int?
+    public let isNrAvailable: Bool
+    public let isVoLteAvailable: Bool
+    public let isVoNrAvailable: Bool
+    public let isRoaming: Bool
+    public let nrMode: String?
+    public let networkGeneration: String
+    public let signalStrengthLevel: String
+    public let technology: String
+}
+
+public struct NeighboringCellResult: Codable {
+    public let type: String
+    public let pci: Int?
+    public let ci: Int64?
+    public let rsrp: Int?
+    public let rsrq: Int?
+    public let rssi: Int?
+    public let tac: Int?
+    public let lac: Int?
+    public let earfcn: Int?
+    public let isRegistered: Bool
 }
 
 public struct SpeedResult: Codable {

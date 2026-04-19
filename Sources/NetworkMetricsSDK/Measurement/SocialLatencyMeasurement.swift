@@ -30,7 +30,8 @@ internal struct SocialLatencyMeasurement {
         do {
             let (_, resp) = try await URLSession.shared.data(for: req)
             let elapsed = Int64(Date().timeIntervalSince(start) * 1000)
-            let ok = (resp as? HTTPURLResponse).map { $0.statusCode < 500 } ?? false
+            // Android parity: reachable = HTTP status 100..599 (any response = TCP+TLS OK)
+            let ok = (resp as? HTTPURLResponse).map { (100...599).contains($0.statusCode) } ?? false
             return SocialLatencyResult(service: name, ttfbMs: elapsed, reachable: ok)
         } catch {
             return SocialLatencyResult(service: name, ttfbMs: nil, reachable: false)

@@ -2,49 +2,104 @@ import Foundation
 import Network
 
 internal struct NetworkContextMeasurement {
-    private static let traceUrl = "https://speed.cloudflare.com/cdn-cgi/trace"
+    private static let traceUrl = "https://1.1.1.1/cdn-cgi/trace"
+    private static let cfLocationsUrl = "https://speed.cloudflare.com/locations"
 
     func measure() async -> NetworkResult {
-        let connType = await detectConnectionType()
+        let connType  = await detectConnectionType()
         let ipVersion = await detectIpVersion()
 
-        guard let url = URL(string: Self.traceUrl),
-              let (data, _) = try? await URLSession.shared.data(from: url),
-              let text = String(data: data, encoding: .utf8) else {
-            return NetworkResult(connectionType: connType, ip: nil, asn: nil, isp: nil,
-                                 city: nil, country: nil, countryCode: nil,
-                                 cfColo: nil, cfServerCity: nil,
-                                 isLocallyServed: nil, ipVersion: ipVersion)
-        }
+        let trace = await fetchCfTrace()
+        let userIp      = trace["ip"] ?? ""
+        let colo        = trace["colo"] ?? ""
+        let countryCode = trace["loc"] ?? ""
 
-        var fields: [String: String] = [:]
-        for line in text.components(separatedBy: "\n") {
-            let parts = line.components(separatedBy: "=")
-            if parts.count == 2 { fields[parts[0]] = parts[1] }
-        }
-
-        let colo    = fields["colo"]
-        let loc     = fields["loc"]
-        let ip      = fields["ip"]
-        let isLocal = colo.flatMap { c -> Bool? in loc.map { l in c == l } }
+        // Fallback chain: ipapi.co first, ipwho.is second. Android parity.
+        let extra = await resolveAsnIspCity(ip: userIp)
+        let serverCity = await fetchCfServerCity(colo: colo)
 
         return NetworkResult(
             connectionType: connType,
-            ip: ip,
-            asn: fields["asn"],
-            isp: fields["org"],
-            city: nil,
-            country: nil,
-            countryCode: loc,
-            cfColo: colo,
-            cfServerCity: nil,
-            isLocallyServed: isLocal,
+            ip: userIp.isEmpty ? nil : userIp,
+            asn: extra.asn,
+            isp: extra.isp,
+            city: extra.city,
+            country: extra.country,
+            countryCode: countryCode.isEmpty ? nil : countryCode,
+            cfColo: colo.isEmpty ? nil : colo,
+            cfServerCity: serverCity,
+            isLocallyServed: nil,
             ipVersion: ipVersion
         )
     }
 
-    // NWPathMonitor with DispatchSemaphore.wait() is forbidden inside Swift concurrency
-    // (blocks the cooperative thread pool). Use async continuation instead.
+    private func fetchCfTrace() async -> [String: String] {
+        guard let url = URL(string: Self.traceUrl),
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let text = String(data: data, encoding: .utf8) else { return [:] }
+        var fields: [String: String] = [:]
+        for line in text.components(separatedBy: "\n") {
+            guard let idx = line.firstIndex(of: "=") else { continue }
+            let k = String(line[..<idx]).trimmingCharacters(in: .whitespaces)
+            let v = String(line[line.index(after: idx)...]).trimmingCharacters(in: .whitespaces)
+            if !k.isEmpty { fields[k] = v }
+        }
+        return fields
+    }
+
+    private struct IpInfo {
+        var asn: String?
+        var isp: String?
+        var city: String?
+        var country: String?
+    }
+
+    private func resolveAsnIspCity(ip: String) async -> IpInfo {
+        var info = IpInfo()
+
+        // 1. ipapi.co
+        if let url = URL(string: "https://ipapi.co/\(ip)/json/"),
+           let (data, _) = try? await URLSession.shared.data(from: url),
+           let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           !(j["asn"] is NSNull), j["asn"] != nil {
+            info.asn = (j["asn"] as? String)
+            info.isp = (j["org"] as? String)
+            info.city = (j["city"] as? String)
+            info.country = (j["country_name"] as? String)
+            return info
+        }
+
+        // 2. ipwho.is fallback
+        if let url = URL(string: "https://ipwho.is/\(ip)"),
+           let (data, _) = try? await URLSession.shared.data(from: url),
+           let j = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let conn = j["connection"] as? [String: Any] {
+                if let asnNum = conn["asn"] as? Int {
+                    info.asn = "AS\(asnNum)"
+                } else if let asnStr = conn["asn"] as? String {
+                    info.asn = "AS\(asnStr)"
+                }
+                info.isp = conn["org"] as? String
+            }
+            info.city = j["city"] as? String
+            info.country = j["country"] as? String
+        }
+        return info
+    }
+
+    private func fetchCfServerCity(colo: String) async -> String? {
+        guard !colo.isEmpty,
+              let url = URL(string: Self.cfLocationsUrl),
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else { return nil }
+        for obj in arr {
+            if let iata = obj["iata"] as? String, iata == colo {
+                return obj["city"] as? String
+            }
+        }
+        return nil
+    }
+
     private func detectConnectionType() async -> String {
         await withCheckedContinuation { cont in
             let monitor = NWPathMonitor()
@@ -77,7 +132,8 @@ internal struct NetworkContextMeasurement {
                 let result: String
                 if has4 && has6 { result = "dual" }
                 else if has6     { result = "IPv6" }
-                else              { result = "IPv4" }
+                else if has4     { result = "IPv4" }
+                else              { result = "unknown" }
                 cont.resume(returning: result)
             }
             monitor.start(queue: .global())

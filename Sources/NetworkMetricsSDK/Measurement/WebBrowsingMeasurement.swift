@@ -1,20 +1,32 @@
 import Foundation
 
 private final class TimingDelegate: NSObject, URLSessionTaskDelegate, URLSessionDataDelegate {
-    var dnsEnd:  Date? = nil
-    var tcpEnd:  Date? = nil
-    var tlsEnd:  Date? = nil
-    var ttfb:    Date? = nil
-    var start:   Date = Date()
+    // Phase-only durations (matches Android OkHttp EventListener semantics)
+    var dnsMs:  Int64? = nil
+    var tcpMs:  Int64? = nil
+    var tlsMs:  Int64? = nil
+    var ttfbMs: Int64? = nil
 
     func urlSession(_ session: URLSession, task: URLSessionTask,
                     didFinishCollecting metrics: URLSessionTaskMetrics) {
         guard let t = metrics.transactionMetrics.first else { return }
-        start   = t.fetchStartDate ?? start
-        dnsEnd  = t.domainLookupEndDate
-        tcpEnd  = t.connectEndDate
-        tlsEnd  = t.secureConnectionEndDate
-        ttfb    = t.responseStartDate
+
+        if let s = t.domainLookupStartDate, let e = t.domainLookupEndDate {
+            dnsMs = Int64(e.timeIntervalSince(s) * 1000)
+        }
+        var tlsPhaseMs: Int64 = 0
+        if let s = t.secureConnectionStartDate, let e = t.secureConnectionEndDate {
+            tlsPhaseMs = Int64(e.timeIntervalSince(s) * 1000)
+            tlsMs = tlsPhaseMs
+        }
+        if let s = t.connectStartDate, let e = t.connectEndDate {
+            // tcp phase = connect total minus TLS handshake (Android parity)
+            let totalMs = Int64(e.timeIntervalSince(s) * 1000)
+            tcpMs = max(0, totalMs - tlsPhaseMs)
+        }
+        if let s = t.requestStartDate, let e = t.responseStartDate {
+            ttfbMs = Int64(e.timeIntervalSince(s) * 1000)
+        }
     }
 }
 
@@ -55,20 +67,21 @@ internal struct WebBrowsingMeasurement {
             let (_, resp) = try await session.data(for: req)
             let totalMs = Int64(Date().timeIntervalSince(totalStart) * 1000)
             let status = (resp as? HTTPURLResponse)?.statusCode
-
-            let dnsMs  = delegate.dnsEnd.map  { Int64($0.timeIntervalSince(delegate.start) * 1000) }
-            let tcpMs  = delegate.tcpEnd.map  { Int64($0.timeIntervalSince(delegate.start) * 1000) }
-            let tlsMs  = delegate.tlsEnd.map  { Int64($0.timeIntervalSince(delegate.start) * 1000) }
-            let ttfbMs = delegate.ttfb.map    { Int64($0.timeIntervalSince(delegate.start) * 1000) }
+            // Android parity: success = 2xx OR 3xx (followRedirects=true treats 3xx as ok)
+            let success = status.map { (200...399).contains($0) } ?? false
 
             return WebBrowsingResult(name: target.name, url: target.url,
-                                     dnsMs: dnsMs, tcpMs: tcpMs, tlsMs: tlsMs, ttfbMs: ttfbMs,
-                                     totalMs: totalMs, httpStatus: status, success: true, error: nil)
+                                     dnsMs: delegate.dnsMs, tcpMs: delegate.tcpMs,
+                                     tlsMs: delegate.tlsMs, ttfbMs: delegate.ttfbMs,
+                                     totalMs: totalMs, httpStatus: status,
+                                     success: success, error: nil)
         } catch {
+            let totalMs = Int64(Date().timeIntervalSince(totalStart) * 1000)
             return WebBrowsingResult(name: target.name, url: target.url,
-                                     dnsMs: nil, tcpMs: nil, tlsMs: nil, ttfbMs: nil,
-                                     totalMs: nil, httpStatus: nil, success: false,
-                                     error: error.localizedDescription)
+                                     dnsMs: delegate.dnsMs, tcpMs: delegate.tcpMs,
+                                     tlsMs: delegate.tlsMs, ttfbMs: delegate.ttfbMs,
+                                     totalMs: totalMs, httpStatus: nil, success: false,
+                                     error: String(error.localizedDescription.prefix(120)))
         }
     }
 }

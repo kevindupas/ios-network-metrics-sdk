@@ -131,18 +131,30 @@ internal struct SpeedMeasurement {
         return Double(totalBytes) * 8.0 / elapsed / 1_000_000.0
     }
 
+    // 14 samples: 2 warmup (discarded) + 12 measured. Jitter = standard deviation.
+    // Matches Android implementation exactly.
     private func measureLatencyJitter() async -> (Double, Double) {
         let url = URL(string: "https://speed.cloudflare.com/__down?bytes=0")!
+        var req = URLRequest(url: url)
+        req.httpMethod = "HEAD"
+        req.timeoutInterval = 5
+
+        // Warmup: 2 throwaway requests
+        for _ in 0..<2 {
+            _ = try? await URLSession.shared.data(for: req)
+        }
+
         var samples: [Double] = []
-        for _ in 0..<10 {
+        for _ in 0..<12 {
             let t = Date()
-            _ = try? await URLSession.shared.data(from: url)
+            _ = try? await URLSession.shared.data(for: req)
             samples.append(Date().timeIntervalSince(t) * 1000.0)
         }
         guard !samples.isEmpty else { return (0, 0) }
         let avg = samples.reduce(0, +) / Double(samples.count)
-        let jitter = samples.map { abs($0 - avg) }.reduce(0, +) / Double(samples.count)
-        return (avg, jitter)
+        let variance = samples.map { pow($0 - avg, 2) }.reduce(0, +) / Double(samples.count)
+        let stdDev = variance.squareRoot()
+        return (avg, stdDev)
     }
 
     private func fetchTrace() async -> (String?, String?) {
