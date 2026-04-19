@@ -6,53 +6,50 @@ on:
       - 'v*'
 
 jobs:
-  build:
-    runs-on: macos-latest
+  release:
+    runs-on: macos-15
     permissions:
       contents: write
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode.app
+      - name: Select Xcode 16
+        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
 
       - name: Resolve SPM dependencies
         run: swift package resolve
 
-      - name: Build (iOS simulator)
-        run: |
-          swift build \
-            -Xswiftc "-sdk" \
-            -Xswiftc "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
-            -Xswiftc "-target" \
-            -Xswiftc "arm64-apple-ios14-simulator"
-
-      - name: Create XCFramework
+      - name: Archive iOS device
         run: |
           xcodebuild archive \
             -scheme NetworkMetricsSDK \
             -destination "generic/platform=iOS" \
-            -archivePath build/ios.xcarchive \
+            -archivePath /tmp/ios.xcarchive \
             SKIP_INSTALL=NO \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=YES
+            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+            CODE_SIGNING_ALLOWED=NO
 
+      - name: Archive iOS Simulator
+        run: |
           xcodebuild archive \
             -scheme NetworkMetricsSDK \
             -destination "generic/platform=iOS Simulator" \
-            -archivePath build/ios-sim.xcarchive \
+            -archivePath /tmp/ios-sim.xcarchive \
             SKIP_INSTALL=NO \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=YES
+            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+            CODE_SIGNING_ALLOWED=NO
 
+      - name: Create XCFramework
+        run: |
           xcodebuild -create-xcframework \
-            -framework build/ios.xcarchive/Products/Library/Frameworks/NetworkMetricsSDK.framework \
-            -framework build/ios-sim.xcarchive/Products/Library/Frameworks/NetworkMetricsSDK.framework \
-            -output build/NetworkMetricsSDK.xcframework
-
-          zip -r build/NetworkMetricsSDK.xcframework.zip build/NetworkMetricsSDK.xcframework
+            -framework /tmp/ios.xcarchive/Products/Library/Frameworks/NetworkMetricsSDK.framework \
+            -framework /tmp/ios-sim.xcarchive/Products/Library/Frameworks/NetworkMetricsSDK.framework \
+            -output /tmp/NetworkMetricsSDK.xcframework
+          zip -r NetworkMetricsSDK.xcframework.zip /tmp/NetworkMetricsSDK.xcframework
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/NetworkMetricsSDK.xcframework.zip
+          files: NetworkMetricsSDK.xcframework.zip
           generate_release_notes: true
