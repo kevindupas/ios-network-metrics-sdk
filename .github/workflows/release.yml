@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Resolve SPM dependencies
+        run: swift package resolve
+
+      - name: Build (iOS simulator)
+        run: |
+          swift build \
+            -Xswiftc "-sdk" \
+            -Xswiftc "$(xcrun --sdk iphonesimulator --show-sdk-path)" \
+            -Xswiftc "-target" \
+            -Xswiftc "arm64-apple-ios14-simulator"
+
+      - name: Create XCFramework
+        run: |
+          xcodebuild archive \
+            -scheme NetworkMetricsSDK \
+            -destination "generic/platform=iOS" \
+            -archivePath build/ios.xcarchive \
+            SKIP_INSTALL=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=YES
+
+          xcodebuild archive \
+            -scheme NetworkMetricsSDK \
+            -destination "generic/platform=iOS Simulator" \
+            -archivePath build/ios-sim.xcarchive \
+            SKIP_INSTALL=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=YES
+
+          xcodebuild -create-xcframework \
+            -framework build/ios.xcarchive/Products/Library/Frameworks/NetworkMetricsSDK.framework \
+            -framework build/ios-sim.xcarchive/Products/Library/Frameworks/NetworkMetricsSDK.framework \
+            -output build/NetworkMetricsSDK.xcframework
+
+          zip -r build/NetworkMetricsSDK.xcframework.zip build/NetworkMetricsSDK.xcframework
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/NetworkMetricsSDK.xcframework.zip
+          generate_release_notes: true
