@@ -161,6 +161,9 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.13
+- Fix: bump minimum iOS target to 15.0 — `URLSession.bytes(from:)` requires iOS 15+
+
 ### v1.0.12
 - Fix: `SpeedMeasurement.measureDownload()` — use `URLSession.bytes(from:)` streaming to measure bytes during the window instead of waiting for full 100MB download to complete
 
