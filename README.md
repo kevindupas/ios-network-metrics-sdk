@@ -161,6 +161,11 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.1
+- Fix: `BGTaskScheduler` double registration crash — add `registerForBackgroundTask()` separate from `initialize()`
+- `AppDelegate` must call `NetworkMetricsSdk.shared.registerForBackgroundTask()` in `didFinishLaunching`
+- `initialize()` is idempotent — safe to call from JS multiple times
+
 ### v1.0.0
 - Initial release
 - Speed, DNS, WebBrowsing, Social latency, Streaming, Packet loss
