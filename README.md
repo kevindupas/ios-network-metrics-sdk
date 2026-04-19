@@ -161,6 +161,9 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.14
+- Fix: download speed measurement — replace `bytes(from:)` byte-by-byte iteration (too slow, loop overhead kills throughput) with `URLSessionDataDelegate` chunk-based counting
+
 ### v1.0.13
 - Fix: bump minimum iOS target to 15.0 — `URLSession.bytes(from:)` requires iOS 15+
 

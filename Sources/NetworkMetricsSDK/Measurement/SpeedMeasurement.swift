@@ -1,5 +1,38 @@
 import Foundation
 
+// Receives data chunks from URLSession and counts bytes within a deadline
+private final class DownloadDelegate: NSObject, URLSessionDataDelegate, @unchecked Sendable {
+    private let deadline: Date
+    private let onDone: (Int) -> Void
+    private var bytes = 0
+    private var task: URLSessionDataTask?
+    private var done = false
+
+    init(deadline: Date, onDone: @escaping (Int) -> Void) {
+        self.deadline = deadline
+        self.onDone = onDone
+    }
+
+    func set(task: URLSessionDataTask) { self.task = task }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        guard !done else { return }
+        bytes += data.count
+        if Date() >= deadline { finish() }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        finish()
+    }
+
+    private func finish() {
+        guard !done else { return }
+        done = true
+        task?.cancel()
+        onDone(bytes)
+    }
+}
+
 internal struct SpeedMeasurement {
     private let downloadDurationMs: Int
     private let uploadDurationMs: Int
@@ -35,40 +68,29 @@ internal struct SpeedMeasurement {
     }
 
     private func measureDownload() async -> Double {
-        let durationSec = Double(downloadDurationMs) / 1000.0
-        let deadline = Date().addingTimeInterval(durationSec)
+        guard let url = URL(string: Self.downloadUrl) else { return 0 }
+        let deadline = Date().addingTimeInterval(Double(downloadDurationMs) / 1000.0)
+        let count = threadCount
         let start = Date()
         let q = DispatchQueue(label: "nm.speed.dl")
 
-        // Stream bytes from each thread concurrently using URLSession bytes(from:)
-        // Task.detached avoids withTaskGroup Swift runtime bug (swift#75501)
         let totalBytes: Int = await withCheckedContinuation { cont in
-            let count = threadCount
             var accumulated = 0
             var done = 0
 
             for _ in 0..<count {
                 Task.detached {
-                    var b = 0
-                    guard let url = URL(string: Self.downloadUrl) else {
-                        q.async { done += 1; if done == count { cont.resume(returning: accumulated) } }
-                        return
-                    }
-                    do {
-                        let (stream, _) = try await URLSession.shared.bytes(from: url)
-                        var buf = [UInt8](repeating: 0, count: 65536)
-                        var idx = 0
-                        for try await byte in stream {
-                            if Date() >= deadline { break }
-                            buf[idx] = byte
-                            idx += 1
-                            if idx == buf.count {
-                                b += idx
-                                idx = 0
-                            }
+                    let b: Int = await withCheckedContinuation { innerCont in
+                        let delegate = DownloadDelegate(deadline: deadline) { bytes in
+                            innerCont.resume(returning: bytes)
                         }
-                        b += idx
-                    } catch {}
+                        let session = URLSession(configuration: .ephemeral,
+                                                delegate: delegate,
+                                                delegateQueue: nil)
+                        let task = session.dataTask(with: url)
+                        delegate.set(task: task)
+                        task.resume()
+                    }
                     q.async {
                         accumulated += b
                         done += 1
