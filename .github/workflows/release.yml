@@ -7,38 +7,12 @@ on:
 
 jobs:
   release:
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Select Xcode 16
-        run: sudo xcode-select -s /Applications/Xcode_16.app/Contents/Developer
-
-      - name: Resolve SPM dependencies
-        run: swift package resolve
-
-      - name: Build (device)
-        run: |
-          xcodebuild \
-            -scheme NetworkMetricsSDK \
-            -destination "generic/platform=iOS" \
-            -configuration Release \
-            CODE_SIGNING_ALLOWED=NO \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
-            build
-
-      - name: Build (simulator)
-        run: |
-          xcodebuild \
-            -scheme NetworkMetricsSDK \
-            -destination "generic/platform=iOS Simulator" \
-            -configuration Release \
-            CODE_SIGNING_ALLOWED=NO \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
-            build
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

@@ -161,6 +161,9 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.6
+- CI: fix release workflow — use swift build (macOS host) to validate; iOS platform not available on macos-15 runner without extra download
+
 ### v1.0.5
 - CI: fix release workflow — use xcodebuild build (swift build --triple fails on CI runner)
 
