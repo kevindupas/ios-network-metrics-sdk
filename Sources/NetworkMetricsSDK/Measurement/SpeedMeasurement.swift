@@ -35,19 +35,30 @@ internal struct SpeedMeasurement {
     }
 
     private func measureDownload() async -> Double {
-        // Sequential downloads per thread — avoids withTaskGroup runtime bug (swift#75501)
         let deadline = Date().addingTimeInterval(Double(downloadDurationMs) / 1000.0)
         let start = Date()
-        var totalBytes = 0
-
-        for _ in 0..<threadCount {
-            while Date() < deadline {
-                guard let url = URL(string: Self.downloadUrl) else { break }
-                guard let (data, _) = try? await URLSession.shared.data(from: url) else { break }
-                totalBytes += data.count
+        let count = threadCount
+        // Serialize result collection on a dedicated queue — avoids withTaskGroup (swift#75501)
+        let q = DispatchQueue(label: "nm.speed.dl")
+        let totalBytes: Int = await withCheckedContinuation { cont in
+            var accumulated = 0
+            var done = 0
+            for _ in 0..<count {
+                Task.detached {
+                    var b = 0
+                    while Date() < deadline {
+                        guard let url = URL(string: Self.downloadUrl) else { break }
+                        guard let (data, _) = try? await URLSession.shared.data(from: url) else { break }
+                        b += data.count
+                    }
+                    q.async {
+                        accumulated += b
+                        done += 1
+                        if done == count { cont.resume(returning: accumulated) }
+                    }
+                }
             }
         }
-
         let elapsed = Date().timeIntervalSince(start)
         guard elapsed > 0 else { return 0 }
         return Double(totalBytes) * 8.0 / elapsed / 1_000_000.0

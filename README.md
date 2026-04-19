@@ -161,6 +161,9 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.11
+- Fix: `SpeedMeasurement.measureDownload()` — threads now run concurrently via `Task.detached` + `DispatchQueue` serialization instead of sequentially (download was ~0 Mbps)
+
 ### v1.0.10
 - Fix: remove all remaining `withTaskGroup` inside measurements (SocialLatency, Speed, WebBrowsing) — same Swift runtime heap corruption bug (swift#75501)
 - Debug: add `os_log` at each step of `runCycle` to identify exact crash location
