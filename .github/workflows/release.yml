@@ -22,15 +22,23 @@ jobs:
 
       - name: Build (device)
         run: |
-          swift build \
-            -c release \
-            --triple arm64-apple-ios14.0
+          xcodebuild \
+            -scheme NetworkMetricsSDK \
+            -destination "generic/platform=iOS" \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+            build
 
       - name: Build (simulator)
         run: |
-          swift build \
-            -c release \
-            --triple arm64-apple-ios14.0-simulator
+          xcodebuild \
+            -scheme NetworkMetricsSDK \
+            -destination "generic/platform=iOS Simulator" \
+            -configuration Release \
+            CODE_SIGNING_ALLOWED=NO \
+            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
+            build
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
