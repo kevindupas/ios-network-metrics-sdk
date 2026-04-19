@@ -161,6 +161,9 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.19
+- Fix: filter CTCarrier placeholder `"--"` (iOS 16+ returns `"--"` for operator name instead of nil)
+
 ### v1.0.18
 - Feat: MCC/MNC/operator via CTCarrier — works on iOS 14–16.3 (common in Africa), returns nil on iOS 16.4+ where Apple returns placeholder "65535"
 - Feat: loaded latency — concurrent HEAD probes during download window, measures RTT under load

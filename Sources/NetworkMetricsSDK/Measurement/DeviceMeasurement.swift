@@ -42,7 +42,8 @@ internal struct DeviceMeasurement {
             // iOS 16.4+ returns "65535" as placeholder — treat as nil
             let validMcc = mccVal.flatMap { $0 == "65535" || $0.isEmpty ? nil : $0 }
             let validMnc = mncVal.flatMap { $0 == "65535" || $0.isEmpty ? nil : $0 }
-            return (carrier.carrierName, validMcc, validMnc)
+            let name = carrier.carrierName.flatMap { $0 == "--" || $0.isEmpty ? nil : $0 }
+            return (name, validMcc, validMnc)
         }()
 
         return DeviceResult(
