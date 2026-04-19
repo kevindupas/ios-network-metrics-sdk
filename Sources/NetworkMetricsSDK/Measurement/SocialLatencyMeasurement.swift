@@ -11,14 +11,12 @@ internal struct SocialLatencyMeasurement {
     ]
 
     func measure() async -> [SocialLatencyResult] {
-        await withTaskGroup(of: SocialLatencyResult.self) { group in
-            for (name, urlStr) in Self.targets {
-                group.addTask { await probe(name: name, urlStr: urlStr) }
-            }
-            var results: [SocialLatencyResult] = []
-            for await r in group { results.append(r) }
-            return results
+        // Sequential to avoid Swift concurrency runtime withTaskGroup heap corruption (swift#75501)
+        var results: [SocialLatencyResult] = []
+        for (name, urlStr) in Self.targets {
+            results.append(await probe(name: name, urlStr: urlStr))
         }
+        return results
     }
 
     private func probe(name: String, urlStr: String) async -> SocialLatencyResult {

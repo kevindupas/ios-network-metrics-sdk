@@ -26,14 +26,12 @@ internal struct WebBrowsingMeasurement {
     }
 
     func measure() async -> [WebBrowsingResult] {
-        await withTaskGroup(of: WebBrowsingResult.self) { group in
-            for target in targets {
-                group.addTask { await probe(target: target) }
-            }
-            var results: [WebBrowsingResult] = []
-            for await r in group { results.append(r) }
-            return results
+        // Sequential to avoid withTaskGroup Swift runtime heap corruption (swift#75501)
+        var results: [WebBrowsingResult] = []
+        for target in targets {
+            results.append(await probe(target: target))
         }
+        return results
     }
 
     private func probe(target: WebTarget) async -> WebBrowsingResult {

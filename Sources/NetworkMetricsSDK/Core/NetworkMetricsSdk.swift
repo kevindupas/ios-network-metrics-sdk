@@ -1,11 +1,13 @@
 import Foundation
 import BackgroundTasks
 import UIKit
+import os.log
 
 private let prefsKey   = "nm_last_result"
 private let prefsKeyAt = "nm_last_result_at"
 private let bgTaskId   = "com.networkmetrics.refresh"
-private let sdkVersion = "1.0.9"
+private let sdkVersion = "1.0.10"
+private let log = OSLog(subsystem: "com.networkmetrics", category: "SDK")
 
 public final class NetworkMetricsSdk {
     public static let shared = NetworkMetricsSdk()
@@ -13,7 +15,6 @@ public final class NetworkMetricsSdk {
     private var bgTaskRegistered = false
     private init() {}
 
-    /// Call once in AppDelegate.didFinishLaunching — before any JS initialize()
     public func registerForBackgroundTask() {
         guard !bgTaskRegistered else { return }
         bgTaskRegistered = true
@@ -30,7 +31,6 @@ public final class NetworkMetricsSdk {
         }
     }
 
-    /// Called from JS via Capacitor plugin
     public func initialize(config: NetworkMetricsConfig) {
         self.config = config
         registerForBackgroundTask()
@@ -39,8 +39,6 @@ public final class NetworkMetricsSdk {
 
     public func measureNow() {
         guard let config else { return }
-        // Task.detached avoids inheriting main-actor context from Capacitor's call site,
-        // preventing the async let / actor-isolation memory bug in Swift concurrency runtime.
         Task.detached { [config] in
             await self.runCycle(config: config)
         }
@@ -60,9 +58,9 @@ public final class NetworkMetricsSdk {
         try? BGTaskScheduler.shared.submit(req)
     }
 
-    // MARK: - Measurement cycle
-
     internal func runCycle(config: NetworkMetricsConfig) async {
+        os_log("runCycle start", log: log, type: .debug)
+
         let webTargets: [WebTarget]
         if config.enableWebBrowsing {
             if let remoteUrl = config.remoteConfigUrl {
@@ -75,8 +73,7 @@ public final class NetworkMetricsSdk {
             webTargets = []
         }
 
-        // Run measurements sequentially to avoid Swift concurrency runtime heap
-        // corruption bug triggered by async let task group cleanup (swift#75501).
+        os_log("runCycle: starting speed", log: log, type: .debug)
         let speed: SpeedResult? = config.enableSpeed
             ? await SpeedMeasurement(
                 downloadDurationMs: config.speedDownloadDurationMs,
@@ -84,22 +81,27 @@ public final class NetworkMetricsSdk {
                 threadCount:        config.speedThreadCount
             ).measure()
             : nil
+        os_log("runCycle: speed done", log: log, type: .debug)
 
         let social: [SocialLatencyResult] = config.enableSocialLatency
             ? await SocialLatencyMeasurement().measure()
             : []
+        os_log("runCycle: social done", log: log, type: .debug)
 
         let streaming: StreamingResult? = config.enableStreaming
             ? await StreamingMeasurement().measure()
             : nil
+        os_log("runCycle: streaming done", log: log, type: .debug)
 
         let dns: DnsResult? = config.enableDns
             ? await DnsMeasurement().measure()
             : nil
+        os_log("runCycle: dns done", log: log, type: .debug)
 
         let webBrowsing: [WebBrowsingResult] = (config.enableWebBrowsing && !webTargets.isEmpty)
             ? await WebBrowsingMeasurement(targets: webTargets).measure()
             : []
+        os_log("runCycle: webBrowsing done", log: log, type: .debug)
 
         let udp: UdpResult?
         if config.enablePacketLoss && !config.udpHost.isEmpty {
@@ -109,16 +111,23 @@ public final class NetworkMetricsSdk {
         } else {
             udp = nil
         }
+        os_log("runCycle: packetLoss done", log: log, type: .debug)
 
         let network = await NetworkContextMeasurement().measure()
-        let device  = await DeviceMeasurement().measure()
-        let geo     = await GeoMeasurement().measure()
+        os_log("runCycle: network done", log: log, type: .debug)
+
+        let device = await DeviceMeasurement().measure()
+        os_log("runCycle: device done", log: log, type: .debug)
+
+        let geo = await GeoMeasurement().measure()
+        os_log("runCycle: geo done", log: log, type: .debug)
 
         let loss   = udp?.lossPercent ?? 0
         let mos    = speed.map { MosCalculator.calculate(latencyMs: $0.latencyMs, jitterMs: $0.jitterMs, lossPercent: loss) }
         let scores = speed.map { QualityScoresCalculator.calculate(downloadMbps: $0.downloadMbps, latencyMs: $0.latencyMs, jitterMs: $0.jitterMs, lossPercent: loss) }
 
         let deviceId = await MainActor.run { UIDevice.current.identifierForVendor?.uuidString ?? "unknown" }
+
         let record = NetworkMetricsRecord(
             testId:        UUID().uuidString,
             deviceId:      deviceId,
@@ -141,9 +150,11 @@ public final class NetworkMetricsSdk {
            let json = String(data: data, encoding: .utf8) {
             UserDefaults.standard.set(json, forKey: prefsKey)
             UserDefaults.standard.set(Date().timeIntervalSince1970 * 1000, forKey: prefsKeyAt)
+            os_log("runCycle: saved result OK", log: log, type: .debug)
         }
 
         await postRecord(record: record, config: config)
+        os_log("runCycle: complete", log: log, type: .debug)
     }
 
     private func postRecord(record: NetworkMetricsRecord, config: NetworkMetricsConfig) async {

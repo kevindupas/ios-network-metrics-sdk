@@ -161,6 +161,10 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.10
+- Fix: remove all remaining `withTaskGroup` inside measurements (SocialLatency, Speed, WebBrowsing) — same Swift runtime heap corruption bug (swift#75501)
+- Debug: add `os_log` at each step of `runCycle` to identify exact crash location
+
 ### v1.0.9
 - Fix: `GeoMeasurement` — `CLLocationManager` must run on main thread; force via `DispatchQueue.main.async`. Guard double-resume with `settled` flag.
 - Fix: `NetworkContextMeasurement` — `DispatchSemaphore.wait()` inside Swift concurrency blocks the cooperative thread pool → replaced with async `withCheckedContinuation`.

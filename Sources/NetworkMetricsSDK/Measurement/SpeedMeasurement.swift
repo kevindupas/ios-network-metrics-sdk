@@ -16,15 +16,10 @@ internal struct SpeedMeasurement {
     }
 
     func measure() async -> SpeedResult? {
-        async let dl = measureDownload()
-        async let ul = measureUpload()
-        async let latJitter = measureLatencyJitter()
-        async let trace = fetchTrace()
-
-        let dlMbps = await dl
-        let ulMbps = await ul
-        let (latMs, jitterMs) = await latJitter
-        let (serverName, serverLocation) = await trace
+        let dlMbps            = await measureDownload()
+        let ulMbps            = await measureUpload()
+        let (latMs, jitterMs) = await measureLatencyJitter()
+        let (serverName, serverLocation) = await fetchTrace()
 
         guard dlMbps > 0 else { return nil }
 
@@ -40,23 +35,17 @@ internal struct SpeedMeasurement {
     }
 
     private func measureDownload() async -> Double {
-        var totalBytes = 0
+        // Sequential downloads per thread — avoids withTaskGroup runtime bug (swift#75501)
         let deadline = Date().addingTimeInterval(Double(downloadDurationMs) / 1000.0)
         let start = Date()
+        var totalBytes = 0
 
-        await withTaskGroup(of: Int.self) { group in
-            for _ in 0..<threadCount {
-                group.addTask {
-                    var bytes = 0
-                    while Date() < deadline {
-                        guard let url = URL(string: Self.downloadUrl) else { break }
-                        guard let (data, _) = try? await URLSession.shared.data(from: url) else { break }
-                        bytes += data.count
-                    }
-                    return bytes
-                }
+        for _ in 0..<threadCount {
+            while Date() < deadline {
+                guard let url = URL(string: Self.downloadUrl) else { break }
+                guard let (data, _) = try? await URLSession.shared.data(from: url) else { break }
+                totalBytes += data.count
             }
-            for await b in group { totalBytes += b }
         }
 
         let elapsed = Date().timeIntervalSince(start)
