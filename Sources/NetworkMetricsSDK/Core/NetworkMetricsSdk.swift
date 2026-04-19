@@ -6,7 +6,7 @@ import os.log
 private let prefsKey   = "nm_last_result"
 private let prefsKeyAt = "nm_last_result_at"
 private let bgTaskId   = "com.networkmetrics.refresh"
-private let sdkVersion = "1.0.11"
+private let sdkVersion = "1.0.12"
 private let log = OSLog(subsystem: "com.networkmetrics", category: "SDK")
 
 public final class NetworkMetricsSdk {

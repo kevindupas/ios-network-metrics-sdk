@@ -35,22 +35,40 @@ internal struct SpeedMeasurement {
     }
 
     private func measureDownload() async -> Double {
-        let deadline = Date().addingTimeInterval(Double(downloadDurationMs) / 1000.0)
+        let durationSec = Double(downloadDurationMs) / 1000.0
+        let deadline = Date().addingTimeInterval(durationSec)
         let start = Date()
-        let count = threadCount
-        // Serialize result collection on a dedicated queue — avoids withTaskGroup (swift#75501)
         let q = DispatchQueue(label: "nm.speed.dl")
+
+        // Stream bytes from each thread concurrently using URLSession bytes(from:)
+        // Task.detached avoids withTaskGroup Swift runtime bug (swift#75501)
         let totalBytes: Int = await withCheckedContinuation { cont in
+            let count = threadCount
             var accumulated = 0
             var done = 0
+
             for _ in 0..<count {
                 Task.detached {
                     var b = 0
-                    while Date() < deadline {
-                        guard let url = URL(string: Self.downloadUrl) else { break }
-                        guard let (data, _) = try? await URLSession.shared.data(from: url) else { break }
-                        b += data.count
+                    guard let url = URL(string: Self.downloadUrl) else {
+                        q.async { done += 1; if done == count { cont.resume(returning: accumulated) } }
+                        return
                     }
+                    do {
+                        let (stream, _) = try await URLSession.shared.bytes(from: url)
+                        var buf = [UInt8](repeating: 0, count: 65536)
+                        var idx = 0
+                        for try await byte in stream {
+                            if Date() >= deadline { break }
+                            buf[idx] = byte
+                            idx += 1
+                            if idx == buf.count {
+                                b += idx
+                                idx = 0
+                            }
+                        }
+                        b += idx
+                    } catch {}
                     q.async {
                         accumulated += b
                         done += 1
@@ -59,8 +77,9 @@ internal struct SpeedMeasurement {
                 }
             }
         }
+
         let elapsed = Date().timeIntervalSince(start)
-        guard elapsed > 0 else { return 0 }
+        guard elapsed > 0, totalBytes > 0 else { return 0 }
         return Double(totalBytes) * 8.0 / elapsed / 1_000_000.0
     }
 
