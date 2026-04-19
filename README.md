@@ -161,6 +161,9 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.8
+- Fix: **root cause of `freed pointer` crash** — known Swift runtime bug (swift#75501): `async let` task group cleanup causes heap corruption. Replaced all `async let` with sequential `await`. Also replaced `Task {}` with `Task.detached` in `measureNow()` to avoid inheriting main-actor context from Capacitor call site.
+
 ### v1.0.7
 - Fix: **root cause of SIGABRT** — `DispatchQueue.main.sync` from main thread (Capacitor calls on main thread) causes deadlock → heap corruption. Replaced with `MainActor.run` (async, safe from any thread). `DeviceMeasurement.measure()` is now `async`.
 

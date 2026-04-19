@@ -5,7 +5,7 @@ import UIKit
 private let prefsKey   = "nm_last_result"
 private let prefsKeyAt = "nm_last_result_at"
 private let bgTaskId   = "com.networkmetrics.refresh"
-private let sdkVersion = "1.0.7"
+private let sdkVersion = "1.0.8"
 
 public final class NetworkMetricsSdk {
     public static let shared = NetworkMetricsSdk()
@@ -20,9 +20,9 @@ public final class NetworkMetricsSdk {
         BGTaskScheduler.shared.register(forTaskWithIdentifier: bgTaskId, using: nil) { [weak self] task in
             guard let self, let config = self.config else { task.setTaskCompleted(success: false); return }
             let t = task as! BGAppRefreshTask
-            let handle = Task { await self.runCycle(config: config) }
+            let handle = Task.detached { await self.runCycle(config: config) }
             t.expirationHandler = { handle.cancel() }
-            Task {
+            Task.detached {
                 await handle.value
                 t.setTaskCompleted(success: true)
                 self.scheduleBackgroundTask()
@@ -39,7 +39,11 @@ public final class NetworkMetricsSdk {
 
     public func measureNow() {
         guard let config else { return }
-        Task { await runCycle(config: config) }
+        // Task.detached avoids inheriting main-actor context from Capacitor's call site,
+        // preventing the async let / actor-isolation memory bug in Swift concurrency runtime.
+        Task.detached { [config] in
+            await self.runCycle(config: config)
+        }
     }
 
     public func getLastResult() -> String? {
@@ -71,22 +75,31 @@ public final class NetworkMetricsSdk {
             webTargets = []
         }
 
-        async let speedTask   = config.enableSpeed ? SpeedMeasurement(
-            downloadDurationMs: config.speedDownloadDurationMs,
-            uploadDurationMs:   config.speedUploadDurationMs,
-            threadCount:        config.speedThreadCount
-        ).measure() : nil
-        async let socialTask  = config.enableSocialLatency ? SocialLatencyMeasurement().measure() : []
-        async let streamTask  = config.enableStreaming ? StreamingMeasurement().measure() : nil
-        async let dnsTask     = config.enableDns ? DnsMeasurement().measure() : nil
-        async let webTask     = (config.enableWebBrowsing && !webTargets.isEmpty)
-                                  ? WebBrowsingMeasurement(targets: webTargets).measure() : []
+        // Run measurements sequentially to avoid Swift concurrency runtime heap
+        // corruption bug triggered by async let task group cleanup (swift#75501).
+        let speed: SpeedResult? = config.enableSpeed
+            ? await SpeedMeasurement(
+                downloadDurationMs: config.speedDownloadDurationMs,
+                uploadDurationMs:   config.speedUploadDurationMs,
+                threadCount:        config.speedThreadCount
+            ).measure()
+            : nil
 
-        let speed       = await speedTask
-        let social      = await socialTask
-        let streaming   = await streamTask
-        let dns         = await dnsTask
-        let webBrowsing = await webTask
+        let social: [SocialLatencyResult] = config.enableSocialLatency
+            ? await SocialLatencyMeasurement().measure()
+            : []
+
+        let streaming: StreamingResult? = config.enableStreaming
+            ? await StreamingMeasurement().measure()
+            : nil
+
+        let dns: DnsResult? = config.enableDns
+            ? await DnsMeasurement().measure()
+            : nil
+
+        let webBrowsing: [WebBrowsingResult] = (config.enableWebBrowsing && !webTargets.isEmpty)
+            ? await WebBrowsingMeasurement(targets: webTargets).measure()
+            : []
 
         let udp: UdpResult?
         if config.enablePacketLoss && !config.udpHost.isEmpty {
