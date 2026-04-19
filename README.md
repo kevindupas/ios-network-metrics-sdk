@@ -1,0 +1,170 @@
+# ios-network-metrics-sdk
+
+Native Swift SDK for comprehensive network quality measurement on iOS. Runs measurements in the foreground and schedules background refreshes via `BGAppRefreshTask`. Produces a structured JSON payload compatible with the [android-network-metrics-sdk](https://github.com/kevindupas/android-network-metrics-sdk).
+
+## Requirements
+
+- iOS 14+
+- Swift 5.7+
+- Xcode 14+
+
+## Installation
+
+### Swift Package Manager
+
+In Xcode → File → Add Package Dependencies:
+
+```
+https://github.com/kevindupas/ios-network-metrics-sdk
+```
+
+Or in `Package.swift`:
+
+```swift
+.package(url: "https://github.com/kevindupas/ios-network-metrics-sdk.git", from: "1.0.0")
+```
+
+## Setup
+
+### 1. Info.plist — Required permissions
+
+```xml
+<!-- Location -->
+<key>NSLocationWhenInUseUsageDescription</key>
+<string>Used to tag network measurements with GPS coordinates.</string>
+<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+<string>Used to tag background network measurements with GPS coordinates.</string>
+
+<!-- Background refresh -->
+<key>BGTaskSchedulerPermittedIdentifiers</key>
+<array>
+    <string>com.networkmetrics.refresh</string>
+</array>
+<key>UIBackgroundModes</key>
+<array>
+    <string>fetch</string>
+</array>
+```
+
+### 2. AppDelegate / App entry point
+
+```swift
+import NetworkMetricsSDK
+
+@main
+struct MyApp: App {
+    init() {
+        NetworkMetricsSdk.shared.initialize(config: NetworkMetricsConfig(
+            backendUrl:          "https://your-backend.com/api/measurements",
+            authHeader:          "Bearer YOUR_TOKEN",
+            intervalMinutes:     15,
+            enableSpeed:         true,
+            enablePacketLoss:    true,
+            enableStreaming:     true,
+            enableSocialLatency: true,
+            enableDns:           true,
+            enableWebBrowsing:   true,
+            udpHost:             "your-udp-server.com",
+            udpPort:             5005,
+            tcpPort:             5006
+        ))
+    }
+    var body: some Scene { WindowGroup { ContentView() } }
+}
+```
+
+## Usage
+
+### Trigger a measurement manually
+
+```swift
+NetworkMetricsSdk.shared.measureNow()
+```
+
+### Read last result
+
+```swift
+if let json = NetworkMetricsSdk.shared.getLastResult() {
+    let ts = NetworkMetricsSdk.shared.getLastResultTimestamp() // ms since epoch
+    print(json)
+}
+```
+
+## Configuration
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `backendUrl` | `String` | required | POST endpoint for measurements |
+| `authHeader` | `String?` | `nil` | `Authorization` header value |
+| `intervalMinutes` | `Int` | `15` | Background refresh interval (best-effort) |
+| `enableSpeed` | `Bool` | `true` | Download/upload speed test via Cloudflare |
+| `enablePacketLoss` | `Bool` | `true` | UDP packet loss (TCP fallback) |
+| `enableStreaming` | `Bool` | `true` | HLS segment download simulation |
+| `enableSocialLatency` | `Bool` | `true` | TTFB to WhatsApp/YouTube/Facebook/etc |
+| `enableDns` | `Bool` | `true` | DNS resolution timing |
+| `enableWebBrowsing` | `Bool` | `true` | Per-phase web timing (DNS+TCP+TLS+TTFB) |
+| `udpHost` | `String` | `""` | UDP echo server host |
+| `udpPort` | `Int` | `5005` | UDP port |
+| `tcpPort` | `Int` | `5006` | TCP fallback port |
+| `webTargets` | `[WebTarget]` | 5 defaults | Sites to probe for web browsing |
+| `remoteConfigUrl` | `String?` | `nil` | URL returning `{"targets":[...]}` (1h cache) |
+
+## Payload
+
+Same structure as android-network-metrics-sdk. Key fields:
+
+```json
+{
+  "testId": "uuid",
+  "deviceId": "IDFV-uuid",
+  "timestamp": "2026-04-19T10:00:00Z",
+  "sdkVersion": "1.0.0",
+  "speed": { "downloadMbps": 12.4, "uploadMbps": 5.1, "latencyMs": 28, "jitterMs": 3.2 },
+  "udpPacketLoss": { "sent": 100, "received": 97, "lossPercent": 3.0, "method": "UDP" },
+  "streaming": { "startTimeMs": 1713520800000, "rebufferCount": 0, "avgBitrateKbps": 1240 },
+  "socialLatency": [{ "service": "WhatsApp", "ttfbMs": 120, "reachable": true }],
+  "dns": { "resolveMs": 34, "host": "www.google.com", "resolvedIps": ["142.250.74.36"], "success": true },
+  "webBrowsing": [{ "name": "Google", "url": "https://www.google.com", "dnsMs": 12, "tcpMs": 28, "tlsMs": 45, "ttfbMs": 80, "totalMs": 95, "httpStatus": 200, "success": true }],
+  "network": { "connectionType": "WiFi", "ip": "1.2.3.4", "asn": "AS12345", "isp": "Safaricom", "cfColo": "NBO", "isLocallyServed": true, "ipVersion": "IPv4" },
+  "geo": { "lat": -1.286, "lon": 36.817, "accuracy": 10.0 },
+  "device": { "manufacturer": "Apple", "model": "iPhone16,2", "osVersion": "18.0", "batteryLevel": 82, "thermalStatus": "NONE" },
+  "scores": { "streaming": { "score": 4, "label": "Good" }, "gaming": { "score": 3, "label": "Average" }, "rtc": { "score": 4, "label": "Good" } },
+  "mos": 4.2
+}
+```
+
+## iOS vs Android feature parity
+
+| Feature | iOS | Android |
+|---|:---:|:---:|
+| Speed DL/UL/Latency/Jitter | ✅ | ✅ |
+| Packet loss UDP/TCP | ✅ | ✅ |
+| HLS streaming simulation | ✅ FG / ⚠️ BG | ✅ |
+| Social latency TTFB | ✅ | ✅ |
+| DNS resolution timing | ✅ | ✅ |
+| Web browsing phase timing | ✅ | ✅ |
+| GPS location | ✅ | ✅ |
+| ISP / ASN / CF PoP | ✅ | ✅ |
+| IP version detection | ✅ | ✅ |
+| Device model / OS / battery | ✅ | ✅ |
+| RAM usage | ✅ | ✅ |
+| Thermal state | ✅ | ✅ |
+| CPU load % | ❌ | ✅ |
+| MCC / MNC / Operator | ❌ CTCarrier deprecated | ✅ |
+| RSRP / RSRQ / Cell ID | ❌ Private API | ✅ |
+| Neighbouring cells | ❌ Private API | ✅ |
+| 5G NSA/SA detection | ❌ No public API | ✅ |
+| VoLTE / VoNR | ❌ No public API | ✅ |
+| Background scheduling guaranteed | ⚠️ BGAppRefresh best-effort | ✅ WorkManager |
+| MOS G.107 | ✅ | ✅ |
+| QoS scores (streaming/gaming/RTC) | ✅ | ✅ |
+
+## Changelog
+
+### v1.0.0
+- Initial release
+- Speed, DNS, WebBrowsing, Social latency, Streaming, Packet loss
+- Device context, GPS, Network context (Cloudflare)
+- BGAppRefreshTask background scheduling
+- `measureNow()` + `getLastResult()` API
+- JSON payload compatible with android-network-metrics-sdk
