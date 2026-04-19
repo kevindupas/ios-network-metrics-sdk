@@ -5,7 +5,7 @@ import UIKit
 private let prefsKey   = "nm_last_result"
 private let prefsKeyAt = "nm_last_result_at"
 private let bgTaskId   = "com.networkmetrics.refresh"
-private let sdkVersion = "1.0.0"
+private let sdkVersion = "1.0.4"
 
 public final class NetworkMetricsSdk {
     public static let shared = NetworkMetricsSdk()

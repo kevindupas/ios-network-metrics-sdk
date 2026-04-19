@@ -161,6 +161,9 @@ Same structure as android-network-metrics-sdk. Key fields:
 
 ## Changelog
 
+### v1.0.4
+- CI: fix release workflow (replace broken xcframework steps with swift build)
+
 ### v1.0.3
 - Fix: SIGABRT crash in `runCycle` — `UIDevice.current.identifierForVendor` called from async context, moved to `MainActor.run`
 
