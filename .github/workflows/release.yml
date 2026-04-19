@@ -20,36 +20,19 @@ jobs:
       - name: Resolve SPM dependencies
         run: swift package resolve
 
-      - name: Archive iOS device
+      - name: Build (device)
         run: |
-          xcodebuild archive \
-            -scheme NetworkMetricsSDK \
-            -destination "generic/platform=iOS" \
-            -archivePath /tmp/ios.xcarchive \
-            SKIP_INSTALL=NO \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
-            CODE_SIGNING_ALLOWED=NO
+          swift build \
+            -c release \
+            --triple arm64-apple-ios14.0
 
-      - name: Archive iOS Simulator
+      - name: Build (simulator)
         run: |
-          xcodebuild archive \
-            -scheme NetworkMetricsSDK \
-            -destination "generic/platform=iOS Simulator" \
-            -archivePath /tmp/ios-sim.xcarchive \
-            SKIP_INSTALL=NO \
-            BUILD_LIBRARY_FOR_DISTRIBUTION=YES \
-            CODE_SIGNING_ALLOWED=NO
-
-      - name: Create XCFramework
-        run: |
-          xcodebuild -create-xcframework \
-            -framework /tmp/ios.xcarchive/Products/Library/Frameworks/NetworkMetricsSDK.framework \
-            -framework /tmp/ios-sim.xcarchive/Products/Library/Frameworks/NetworkMetricsSDK.framework \
-            -output /tmp/NetworkMetricsSDK.xcframework
-          zip -r NetworkMetricsSDK.xcframework.zip /tmp/NetworkMetricsSDK.xcframework
+          swift build \
+            -c release \
+            --triple arm64-apple-ios14.0-simulator
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: NetworkMetricsSDK.xcframework.zip
           generate_release_notes: true
