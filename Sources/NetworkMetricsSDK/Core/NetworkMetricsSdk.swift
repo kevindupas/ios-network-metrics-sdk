@@ -6,7 +6,7 @@ import os.log
 private let prefsKey   = "nm_last_result"
 private let prefsKeyAt = "nm_last_result_at"
 private let bgTaskId   = "com.networkmetrics.refresh"
-private let sdkVersion = "1.0.20"
+private let sdkVersion = "1.0.21"
 private let log = OSLog(subsystem: "com.networkmetrics", category: "SDK")
 
 public final class NetworkMetricsSdk {
@@ -171,7 +171,10 @@ public final class NetworkMetricsSdk {
            let json = String(data: data, encoding: .utf8) {
             UserDefaults.standard.set(json, forKey: prefsKey)
             UserDefaults.standard.set(Date().timeIntervalSince1970 * 1000, forKey: prefsKeyAt)
-            os_log("runCycle: saved result OK", log: log, type: .debug)
+            os_log("runCycle: saved result OK (%d chars, speedNil=%{public}@)",
+                   log: log, type: .debug, json.count, speed == nil ? "true" : "false")
+        } else {
+            os_log("runCycle: ENCODE FAILED", log: log, type: .error)
         }
 
         emit(.complete, record)

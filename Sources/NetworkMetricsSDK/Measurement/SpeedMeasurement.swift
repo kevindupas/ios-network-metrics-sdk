@@ -111,23 +111,47 @@ internal struct SpeedMeasurement {
     }
 
     private func measureUpload() async -> Double {
-        let payload = Data(repeating: 0x41, count: 1_000_000)
-        var totalBytes = 0
-        let deadline = Date().addingTimeInterval(Double(uploadDurationMs) / 1000.0)
+        os_log("speed: upload start", log: speedLog, type: .debug)
+        let payload = Data(repeating: 0x41, count: 2_000_000)
+        let durationSec = Double(uploadDurationMs) / 1000.0
+        let deadline = Date().addingTimeInterval(durationSec)
         let start = Date()
 
-        while Date() < deadline {
-            guard let url = URL(string: Self.uploadUrl) else { break }
-            var req = URLRequest(url: url)
-            req.httpMethod = "POST"
-            req.httpBody = payload
-            req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
-            guard let (_, _) = try? await URLSession.shared.data(for: req) else { break }
-            totalBytes += payload.count
+        let sessionConfig = URLSessionConfiguration.ephemeral
+        sessionConfig.timeoutIntervalForRequest = 10
+        sessionConfig.timeoutIntervalForResource = durationSec + 5
+        let session = URLSession(configuration: sessionConfig)
+
+        let handles: [Task<Int, Never>] = (0..<threadCount).map { _ in
+            Task.detached {
+                var bytes = 0
+                while Date() < deadline {
+                    guard let url = URL(string: Self.uploadUrl) else { break }
+                    var req = URLRequest(url: url)
+                    req.httpMethod = "POST"
+                    req.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+                    do {
+                        let (_, resp) = try await session.upload(for: req, from: payload)
+                        if let http = resp as? HTTPURLResponse, (200...299).contains(http.statusCode) {
+                            bytes += payload.count
+                        } else {
+                            break
+                        }
+                    } catch {
+                        break
+                    }
+                }
+                return bytes
+            }
         }
 
+        var totalBytes = 0
+        for h in handles { totalBytes += await h.value }
+        session.invalidateAndCancel()
+
         let elapsed = Date().timeIntervalSince(start)
-        guard elapsed > 0 else { return 0 }
+        os_log("speed: upload %d bytes in %.2fs", log: speedLog, type: .debug, totalBytes, elapsed)
+        guard elapsed > 0, totalBytes > 10000 else { return 0 }
         return Double(totalBytes) * 8.0 / elapsed / 1_000_000.0
     }
 
