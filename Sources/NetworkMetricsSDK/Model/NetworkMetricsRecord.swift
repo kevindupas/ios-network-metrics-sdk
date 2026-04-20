@@ -138,6 +138,11 @@ public struct DeviceResult: Codable {
     public let model: String
     public let osVersion: String
     public let sdkInt: Int
+    public let platform: String
+    public let operatingSystem: String
+    public let lang: String?
+    public let uuid: String?
+    public let isVirtual: Bool
     public let simOperatorName: String?
     public let mcc: String?
     public let mnc: String?

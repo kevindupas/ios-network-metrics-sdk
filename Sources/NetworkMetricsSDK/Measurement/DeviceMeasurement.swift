@@ -1,6 +1,9 @@
 import Foundation
 import UIKit
 import CoreTelephony
+#if canImport(Darwin)
+import Darwin
+#endif
 
 internal struct DeviceMeasurement {
     func measure() async -> DeviceResult {
@@ -46,11 +49,26 @@ internal struct DeviceMeasurement {
             return (name, validMcc, validMnc)
         }()
 
+        let uuid = await MainActor.run { UIDevice.current.identifierForVendor?.uuidString }
+        let lang = Locale.current.identifier
+        let isVirtual: Bool = {
+            #if targetEnvironment(simulator)
+            return true
+            #else
+            return false
+            #endif
+        }()
+
         return DeviceResult(
             manufacturer: "Apple",
             model: model,
             osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
             sdkInt: Int(ProcessInfo.processInfo.operatingSystemVersion.majorVersion),
+            platform: "ios",
+            operatingSystem: "ios",
+            lang: lang,
+            uuid: uuid,
+            isVirtual: isVirtual,
             simOperatorName: simOperatorName,
             mcc: mcc,
             mnc: mnc,
